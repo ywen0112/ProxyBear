@@ -1,17 +1,28 @@
+// controllers/userController.js
 const {
   updateUserBasic,
   updateUserPassword,
   upsertUserBilling,
-  getUserById
+  getUserById,
+  createSubUser,
+  getSubUsersByMainEmail,
+  deleteSubUser,
+  spendCredit, // 可选：若你有 /api/credits/spend 路由
 } = require("../maintenance/userMaintenance");
 
+// 统一错误响应
+function sendErr(res, status, message, extra = {}) {
+  return res.status(status).json({ message, ...extra });
+}
+
+/** 基本信息 */
 const getUserInfo = async (req, res) => {
   try {
     const { id } = req.params;
-    const data = await getUserById(id);
-    res.json(data);
+    const data = await getUserById(id); // { user: {..., effectiveCredit}, billing }
+    return res.json(data);
   } catch (err) {
-    res.status(404).json({ message: err.message });
+    return sendErr(res, 404, err.message);
   }
 };
 
@@ -19,9 +30,9 @@ const updateBasicInfo = async (req, res) => {
   try {
     const { username, email } = req.body;
     const user = await updateUserBasic(req.user.id, { username, email });
-    res.json({ user });
+    return res.json({ user });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    return sendErr(res, 400, err.message);
   }
 };
 
@@ -29,20 +40,123 @@ const updatePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     await updateUserPassword(req.user.id, currentPassword, newPassword);
-    res.json({ message: "Password updated successfully" });
+    return res.json({ message: "Password updated successfully" });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    return sendErr(res, 400, err.message);
   }
 };
 
 const upsertBillingInfo = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const billing = await upsertUserBilling(userId, req.body);
-    res.json({ billing });
+    const billing = await upsertUserBilling(req.user.id, req.body);
+    return res.json({ billing });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    return sendErr(res, 400, err.message);
   }
 };
 
-module.exports = { getUserInfo, updateBasicInfo, updatePassword, upsertBillingInfo };
+/** 子用户 */
+const createSubuser = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return sendErr(res, 400, "子用户邮箱是必须的");
+
+    const { user, plainPassword } = await createSubUser(req.user.id, { subEmail: email });
+    // 共享池：usesPool=true，credit=0；仅创建时返回明文密码
+    return res.status(201).json({
+      id: user._id.toString(),
+      email: user.email,
+      username: user.username,
+      password: plainPassword, // 仅此一次
+      usesPool: true,
+      credit: 0,
+    });
+  } catch (err) {
+    const code = err.code === "DUPLICATE_EMAIL" ? 409 : 400;
+    return sendErr(res, code, err.message);
+  }
+};
+
+const getSubuserList = async (req, res) => {
+  try {
+    // 仅允许主账号查看自己的子用户
+    if (req.user.role !== "main") return sendErr(res, 403, "Forbidden");
+
+    const requestedEmail = String(req.query.email || "").trim().toLowerCase();
+    const authedLower = String(req.user.email || "").toLowerCase();
+    const effectiveEmail = requestedEmail || authedLower;
+
+    if (requestedEmail && requestedEmail !== authedLower) {
+      return sendErr(res, 403, "Forbidden");
+    }
+
+    const subs = await getSubUsersByMainEmail(effectiveEmail);
+    const data = subs.map((s) => ({
+      id: s._id.toString(),
+      email: s.email,
+      username: s.username,
+      usesPool: true,
+      credit: 0,
+      effectiveCredit: s.effectiveCredit, // 展示主池余额
+      createdAt: s.createdAt,
+    }));
+
+    return res.json({ subusers: data });
+  } catch (err) {
+    return sendErr(res, 400, err.message);
+  }
+};
+
+const deleteSubuser = async (req, res) => {
+  try {
+    if (req.user.role !== "main") return sendErr(res, 403, "Forbidden");
+
+    const { subId } = req.params;
+    if (!subId) return sendErr(res, 400, "子用户ID是必要的");
+
+    const deleted = await deleteSubUser(req.user.id, subId);
+    return res.json({ message: "Sub user deleted", subuser: deleted });
+  } catch (err) {
+    const code = err.code === "NOT_FOUND" ? 404 : 400;
+    return sendErr(res, code, err.message);
+  }
+};
+
+/** 消费（如果你有 /api/credits/spend 路由则保留，否则可删除这个函数与对应路由） */
+const spend = async (req, res) => {
+  try {
+    const { amount, userId } = req.body;
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) {
+      return sendErr(res, 400, "amount 必须是正数");
+    }
+
+    // 默认为当前登录用户消费；主账号可代子账号消费时传 userId
+    const spenderId = userId || req.user.id;
+    if (spenderId !== req.user.id && req.user.role !== "main") {
+      return sendErr(res, 403, "Forbidden");
+    }
+
+    const result = await spendCredit(spenderId, value);
+    return res.json(result); // { main:{pool}, sub?:{effectiveCredit} }
+  } catch (err) {
+    if (err.code === "USER_NOT_FOUND" || err.code === "MAIN_NOT_FOUND") {
+      return sendErr(res, 404, err.message);
+    }
+    if (err.code === "INSUFFICIENT_MAIN" || err.code === "INSUFFICIENT_SUB") {
+      return sendErr(res, 409, err.message, { code: err.code });
+    }
+    return sendErr(res, 400, err.message);
+  }
+};
+
+module.exports = {
+  getUserInfo,
+  updateBasicInfo,
+  updatePassword,
+  upsertBillingInfo,
+  createSubuser,
+  getSubuserList,
+  deleteSubuser,
+  spend,
+};

@@ -1,55 +1,61 @@
+// config/cryptomus.js
 const crypto = require('crypto');
 const axios = require('axios');
 
-const BASE_URL = process.env.CRYPTOMUS_BASE_URL;
+const BASE_URL    = process.env.CRYPTOMUS_BASE_URL || 'https://api.cryptomus.com/v1';
 const MERCHANT_ID = process.env.CRYPTOMUS_MERCHANT_ID;
 const PAYMENT_KEY = process.env.CRYPTOMUS_PAYMENT_KEY;
 
-const generateSign = (body) => {
-  const data = JSON.stringify(body);
-  const base64Data = Buffer.from(data).toString('base64');
-  const toHash = base64Data + PAYMENT_KEY;
-  return crypto.createHash('md5').update(toHash).digest('hex');
-};
+function generateSign(bodyObj) {
+  const json = JSON.stringify(bodyObj);
+  const b64  = Buffer.from(json, 'utf8').toString('base64');
+  return crypto.createHash('md5').update(b64 + PAYMENT_KEY, 'utf8').digest('hex');
+}
 
-const verifySign = (body, receivedSign) => {
-  const data = JSON.stringify(body);
-  const base64Data = Buffer.from(data).toString('base64');
-  const calculated = crypto.createHash('md5').update(base64Data + PAYMENT_KEY).digest('hex');
-  return calculated === receivedSign;
-};
+// Webhook 验签：对“去掉 sign 后的 JSON”重新计算并比对
+function verifySign(incoming) {
+  const { sign, ...rest } = incoming || {};
+  const json = JSON.stringify(rest);                    
+  const b64  = Buffer.from(json, 'utf8').toString('base64');
+  const calc = crypto.createHash('md5').update(b64 + PAYMENT_KEY, 'utf8').digest('hex');
+  return calc === sign;
+}
 
-const createInvoice = async (amount, orderId, currency = 'USD') => {
-  const body = {
-    amount: amount.toString(),
-    currency,
-    order_id: orderId,
-    url_callback: 'https://your-domain.com/webhook/cryptomus', 
-    is_payment_multiple: true,
-    lifetime: 3600,
+// 通用 POST 包装：带签名头 + 超时 + 错误透出
+async function cryptomusPost(path, body) {
+  const headers = {
+    merchant: MERCHANT_ID,
+    sign: generateSign(body),
+    'Content-Type': 'application/json',
   };
-  const sign = generateSign(body);
-  const response = await axios.post(`${BASE_URL}/payment`, body, {
-    headers: {
-      merchant: MERCHANT_ID,
-      sign,
-      'Content-Type': 'application/json',
-    },
-  });
-  return response.data.result;
-};
+  const { data } = await axios.post(`${BASE_URL}${path}`, body, { headers, timeout: 15000 });
+  if (data?.state !== 0) {
+    const msg = data?.message || JSON.stringify(data);
+    throw new Error(`Cryptomus error: ${msg}`);
+  }
+  return data.result;
+}
 
-const getPaymentInfo = async (uuid) => {
-  const body = { uuid };
-  const sign = generateSign(body);
-  const response = await axios.post(`${BASE_URL}/payment/info`, body, {
-    headers: {
-      merchant: MERCHANT_ID,
-      sign,
-      'Content-Type': 'application/json',
-    },
-  });
-  return response.data.result;
-};
+// 创建发票（推荐带上 to_currency/network 与回调跳转）
+async function createInvoice(amount, orderId, currency = 'USD') {
+  const body = {
+    amount: String(amount),                                  
+    currency,                                               
+    order_id: orderId,
+    to_currency: 'USDT',                                    
+    network: 'tron',                                        
+    url_callback: `${process.env.PUBLIC_API_URL}/webhook/cryptomus/payment`,
+    url_success: `${process.env.APP_URL}/wallet/topup-success?orderId=${orderId}`,
+    url_return: `${process.env.APP_URL}/wallet`,
+    is_payment_multiple: true,
+    lifetime: 3600,                                        
+  };
+  return cryptomusPost('/payment', body);
+}
 
-module.exports = { createInvoice, getPaymentInfo, verifySign };
+// 查询发票信息
+async function getPaymentInfo(uuid) {
+  return cryptomusPost('/payment/info', { uuid });
+}
+
+module.exports = { createInvoice, getPaymentInfo, verifySign, generateSign };

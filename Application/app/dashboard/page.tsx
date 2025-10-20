@@ -7,26 +7,55 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
+import { getUserInfo } from "../api/user"
 
 export default function DashboardPage() {
   const router = useRouter()
   const [balance, setBalance] = useState(0)
+  const [balanceUsed, setBalanceUsed] = useState(0)
   const [plans, setPlans] = useState(0)
   const [dataUsed, setDataUsed] = useState(0)
   const [dataLimit, setDataLimit] = useState(0)
   const [username, setUsername] = useState("")
   const [userId, setUserId] = useState("")
 
+  // 统一更新会话中的主池余额（兼容旧字段 credit）
+  function updateSessionMainCredit(newPool: number) {
+    const raw = sessionStorage.getItem("user")
+    if (!raw) return
+    try {
+      const u = JSON.parse(raw)
+      const next = { ...u, credit: newPool, pool: newPool }
+      sessionStorage.setItem("user", JSON.stringify(next))
+      window.dispatchEvent(
+        new CustomEvent("user:credit-updated", { detail: { credit: newPool, pool: newPool } })
+      )
+    } catch {}
+  }
+
   useEffect(() => {
     const userData = sessionStorage.getItem("user")
-    if (userData) {
-      try {
-        const parsedUser = JSON.parse(userData)
-        setUserId(parsedUser.id)
-        setUsername(parsedUser.username)
-      } catch (err) {
-        console.error("Failed to parse user from sessionStorage", err)
-      }
+    if (!userData) return
+
+    try {
+      const u = JSON.parse(userData)
+      if (!u?.id) return
+      setUserId(u.id)
+      setUsername(u.username)
+
+      // 以服务器为准刷新有效余额
+      getUserInfo(u.id)
+        .then((res) => {
+          const eff = Number(res?.user?.effectiveCredit ?? 0)
+          setBalance(eff)
+          updateSessionMainCredit(eff) // 同步会话
+        })
+        .catch(() => {
+          // 兜底：用会话里已有的 credit/pool
+          setBalance(Number(u.pool ?? u.credit ?? 0))
+        })
+    } catch (err) {
+      console.error("Failed to parse user from sessionStorage", err)
     }
   }, [])
 
@@ -48,7 +77,7 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent className="flex flex-col justify-between flex-1">
                 <div className="flex flex-col items-start gap-3">
-                  <div className="text-3xl font-bold">${balance.toFixed(2)}</div>
+                  <div className="text-3xl font-bold">${balance?.toFixed(2)}</div>
                   <Button
                     size="sm"
                     className="bg-green-500 hover:bg-green-600"
@@ -58,7 +87,7 @@ export default function DashboardPage() {
                   </Button>
                 </div>
                 <div className="border-t pt-2 mt-3 text-sm text-muted-foreground">
-                  总支出余额 ${balance.toFixed(2)}
+                  总支出余额 ${balanceUsed?.toFixed(2)}
                 </div>
               </CardContent>
             </Card>
@@ -127,7 +156,6 @@ export default function DashboardPage() {
             </Card>
           </div>
 
-          {/* Gift Section */}
           <div>
             <h2 className="text-xl font-semibold mb-4">您的有效计划</h2>
             <p className="text-muted-foreground mb-4">

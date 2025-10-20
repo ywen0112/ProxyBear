@@ -20,14 +20,17 @@ export default function ProfilePage() {
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [companyMode, setCompanyMode] = useState(false)
+
   const [editBasic, setEditBasic] = useState(false)
   const [editPassword, setEditPassword] = useState(false)
   const [editBilling, setEditBilling] = useState(false)
+
   const [tempUsername, setTempUsername] = useState("")
   const [tempEmail, setTempEmail] = useState("")
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+
   const [billingInfo, setBillingInfo] = useState({
     legalName: "",
     legalSurname: "",
@@ -48,12 +51,23 @@ export default function ProfilePage() {
     companyName: "",
     vatNumber: "",
   })
+
   const [error, setError] = useState<string | null>(null)
-  const [basicInfoError, setBasicInfoError] = useState({
-    username: "",
-    email: "",
-  })
+  const [basicInfoError, setBasicInfoError] = useState({ username: "", email: "" })
   const [passwordError, setPasswordError] = useState("")
+
+  // 统一更新 sessionStorage.user（只改 username / email，保留其他字段，比如 credit/pool/role）
+  function updateSessionUser(partial: Partial<{ username: string; email: string }>) {
+    const raw = sessionStorage.getItem("user")
+    if (!raw) return
+    try {
+      const u = JSON.parse(raw)
+      const next = { ...u, ...partial }
+      sessionStorage.setItem("user", JSON.stringify(next))
+      // 可选：广播资料变更事件（Navigation 如需监听可用）
+      window.dispatchEvent(new CustomEvent("user:profile-updated", { detail: partial }))
+    } catch {}
+  }
 
   useEffect(() => {
     const userData = sessionStorage.getItem("user")
@@ -63,11 +77,12 @@ export default function ProfilePage() {
       const parsedUser = JSON.parse(userData)
       if (!parsedUser.id) return
       setUserId(parsedUser.id)
+
       getUserInfo(parsedUser.id).then((res) => {
         setUsername(res.user.username)
         setEmail(res.user.email)
         setBillingInfo(res.billing || {})
-        setInitialBillingInfo(res.billing || {}) // Store initial values fetched from DB
+        setInitialBillingInfo(res.billing || {})
         setCompanyMode(!!res.billing?.companyName)
       })
     } catch (err) {
@@ -75,11 +90,9 @@ export default function ProfilePage() {
     }
   }, [])
 
-  // Handle toggling company mode and clearing companyName and vatNumber if disabled
   const handleCompanyModeChange = (checked: boolean) => {
     setCompanyMode(checked)
     if (!checked) {
-      // Reset company-related fields when companyMode is set to false
       setBillingInfo({
         ...billingInfo,
         companyName: "",
@@ -90,28 +103,26 @@ export default function ProfilePage() {
 
   const handleSaveBasic = async () => {
     if (!tempUsername) {
-      setBasicInfoError((prev) => ({
-        ...prev,
-        username: "用户名是必填的",
-      }))
+      setBasicInfoError((prev) => ({ ...prev, username: "用户名是必填的" }))
       return
     }
     if (!tempEmail) {
-      setBasicInfoError((prev) => ({
-        ...prev,
-        email: "电子邮件是必填的",
-      }))
+      setBasicInfoError((prev) => ({ ...prev, email: "电子邮件是必填的" }))
       return
     }
 
     try {
       const res = await updateBasicInfo(tempUsername, tempEmail)
+      // 本页 state
       setUsername(res.user.username)
       setEmail(res.user.email)
       setEditBasic(false)
-      setBasicInfoError({ username: "", email: "" }) // Clear error messages
+      setBasicInfoError({ username: "", email: "" })
+
+      // ✅ 同步 sessionStorage.user，避免全站显示旧用户名/邮箱
+      updateSessionUser({ username: res.user.username, email: res.user.email })
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message)
+      setError(err?.response?.data?.message || err.message)
     }
   }
 
@@ -119,7 +130,7 @@ export default function ProfilePage() {
     setTempUsername(username)
     setTempEmail(email)
     setEditBasic(false)
-    setBasicInfoError({ username: "", email: "" }) // Clear errors on cancel
+    setBasicInfoError({ username: "", email: "" })
   }
 
   const handleSavePassword = async () => {
@@ -137,9 +148,9 @@ export default function ProfilePage() {
       setCurrentPassword("")
       setNewPassword("")
       setConfirmPassword("")
-      setPasswordError("") // Clear error after successful save
+      setPasswordError("")
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message)
+      setError(err?.response?.data?.message || err.message)
     }
   }
 
@@ -148,23 +159,23 @@ export default function ProfilePage() {
     setNewPassword("")
     setConfirmPassword("")
     setEditPassword(false)
-    setPasswordError("") // Clear error on cancel
+    setPasswordError("")
   }
 
   const handleSaveBilling = async () => {
     try {
       const res = await upsertBillingInfo({ ...billingInfo, companyMode })
       setBillingInfo(res.billing)
-      setInitialBillingInfo(res.billing) // Update the initial values after save
+      setInitialBillingInfo(res.billing)
       setCompanyMode(!!res.billing?.companyName)
       setEditBilling(false)
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message)
+      setError(err?.response?.data?.message || err.message)
     }
   }
 
   const handleCancelBilling = () => {
-    setBillingInfo({ ...initialBillingInfo }) // Reset to initial fetched values
+    setBillingInfo({ ...initialBillingInfo })
     setEditBilling(false)
   }
 
@@ -175,8 +186,10 @@ export default function ProfilePage() {
         <h1 className="text-2xl font-semibold">账户设置</h1>
         <p className="text-sm text-muted-foreground">您的个人资料详情</p>
         {error && <div className="text-red-500 text-center">{error}</div>}
+
         <div className="grid md:grid-cols-12 gap-6">
           <div className="md:col-span-4 space-y-6">
+            {/* 基本信息 */}
             <Card>
               <CardHeader>
                 <div className="flex flex-row items-center justify-between w-full">
@@ -205,20 +218,14 @@ export default function ProfilePage() {
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground font-normal">用户名</Label>
-                      <Input
-                        value={tempUsername}
-                        onChange={(e) => setTempUsername(e.target.value)}
-                      />
+                      <Input value={tempUsername} onChange={(e) => setTempUsername(e.target.value)} />
                       {basicInfoError.username && (
                         <p className="text-xs text-red-500">{basicInfoError.username}</p>
                       )}
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground font-normal">电子邮件</Label>
-                      <Input
-                        value={tempEmail}
-                        onChange={(e) => setTempEmail(e.target.value)}
-                      />
+                      <Input value={tempEmail} onChange={(e) => setTempEmail(e.target.value)} />
                       {basicInfoError.email && (
                         <p className="text-xs text-red-500">{basicInfoError.email}</p>
                       )}
@@ -248,16 +255,14 @@ export default function ProfilePage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* 密码 */}
             <Card>
               <CardHeader>
                 <div className="flex flex-row items-center justify-between w-full">
                   <CardTitle className="text-lg font-semibold">密码</CardTitle>
                   {!editPassword && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setEditPassword(true)}
-                    >
+                    <Button size="icon" variant="ghost" onClick={() => setEditPassword(true)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
                   )}
@@ -304,17 +309,15 @@ export default function ProfilePage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* 账单信息 */}
           <div className="md:col-span-8">
             <Card className="h-full">
               <CardHeader>
                 <div className="flex flex-row items-center justify-between w-full">
                   <CardTitle className="text-lg font-semibold">账单信息</CardTitle>
                   {!editBilling && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setEditBilling(true)}
-                    >
+                    <Button size="icon" variant="ghost" onClick={() => setEditBilling(true)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
                   )}
@@ -327,9 +330,7 @@ export default function ProfilePage() {
                       <Label className="text-xs text-muted-foreground font-normal">名字</Label>
                       <Input
                         value={billingInfo.legalName || ""}
-                        onChange={(e) =>
-                          setBillingInfo({ ...billingInfo, legalName: e.target.value })
-                        }
+                        onChange={(e) => setBillingInfo({ ...billingInfo, legalName: e.target.value })}
                       />
                     </div>
                     <div>
@@ -354,33 +355,29 @@ export default function ProfilePage() {
                       <Label className="text-xs text-muted-foreground font-normal">电话号码</Label>
                       <Input
                         value={billingInfo.phone || ""}
-                        onChange={(e) =>
-                          setBillingInfo({ ...billingInfo, phone: e.target.value })
-                        }
+                        onChange={(e) => setBillingInfo({ ...billingInfo, phone: e.target.value })}
                       />
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground font-normal">账单地址</Label>
                       <Input
                         value={billingInfo.address || ""}
-                        onChange={(e) =>
-                          setBillingInfo({ ...billingInfo, address: e.target.value })
-                        }
+                        onChange={(e) => setBillingInfo({ ...billingInfo, address: e.target.value })}
                       />
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground font-normal">邮编</Label>
                       <Input
                         value={billingInfo.zip || ""}
-                        onChange={(e) =>
-                          setBillingInfo({ ...billingInfo, zip: e.target.value })
-                        }
+                        onChange={(e) => setBillingInfo({ ...billingInfo, zip: e.target.value })}
                       />
                     </div>
+
                     <div className="flex items-center gap-2 md:col-span-2">
                       <Label className="text-xs text-muted-foreground font-normal">公司模式</Label>
                       <Switch checked={companyMode} onCheckedChange={handleCompanyModeChange} />
                     </div>
+
                     {companyMode && (
                       <>
                         <div>
@@ -403,6 +400,7 @@ export default function ProfilePage() {
                         </div>
                       </>
                     )}
+
                     <div className="flex gap-2 justify-end md:col-span-2">
                       <Button onClick={handleSaveBilling}>保存</Button>
                       <Button variant="outline" onClick={handleCancelBilling}>
@@ -412,7 +410,7 @@ export default function ProfilePage() {
                   </>
                 ) : (
                   <>
-                    {[ 
+                    {[
                       ["名字", billingInfo.legalName],
                       ["姓氏", billingInfo.legalSurname],
                       ["账单邮箱", billingInfo.billingEmail],
@@ -430,7 +428,7 @@ export default function ProfilePage() {
                       <div key={i}>
                         <Label className="text-xs text-muted-foreground font-normal">{label}</Label>
                         <p className="mt-1 text-base font-medium text-foreground">
-                          {value && value !== "" ? value : "-"}
+                          {value && value !== "" ? (value as string) : "-"}
                         </p>
                       </div>
                     ))}
