@@ -1,7 +1,7 @@
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
 
-/** ====== 统一类型 ====== */
+/** ====== 类型 ====== */
 export type UserToken = {
   id?: string;
   userId?: string;
@@ -23,26 +23,41 @@ export type SessionUser = {
   pool?: number;
 };
 
-/** ====== 和 user.ts 保持一致的基础地址 & 鉴权头 ====== */
+export type TopupCreateResponse = {
+  paymentUrl: string;
+  orderId: string;
+  rate: number;
+  expectedCredits: number;
+  transactionId: string;
+  expiresAt: string; // ISO
+};
+
+export type BalanceResponse = { credit: number };
+
+export type ActivePaymentResponse =
+  | { hasActive: false }
+  | {
+      hasActive: true;
+      transactionId: string;
+      orderId: string;
+      paymentUrl: string;
+      expiresAt: string; // ISO
+    };
+
+/** ====== 基础配置 ====== */
 const API_BASE = "http://localhost:8210/api";
 
-// 和 user.ts 一样：没有 token 就不发 Authorization 头
+/** ====== 鉴权头（去引号/trim，防止 Bearer "xxx"） ====== */
 function authHeaders() {
-  const token = sessionStorage.getItem("token");
+  const raw = sessionStorage.getItem("token");
+  const token = raw ? raw.trim().replace(/^"+|"+$/g, "") : null;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 /** ====== 会话工具 ====== */
-function getToken(): string | null {
-  try {
-    return sessionStorage.getItem("token");
-  } catch {
-    return null;
-  }
-}
-
 function requireToken(): string {
-  const t = getToken();
+  const raw = sessionStorage.getItem("token");
+  const t = raw ? raw.trim().replace(/^"+|"+$/g, "") : null;
   if (!t) throw new Error("Not authenticated");
   return t;
 }
@@ -67,17 +82,6 @@ function extractUserIdFromToken(t: string): string {
   return id;
 }
 
-/** ====== API 返回类型 ====== */
-export type TopupCreateResponse = {
-  paymentUrl: string;
-  orderId: string;
-  rate: number;
-  expectedCredits: number;
-  transactionId?: string;
-};
-
-export type BalanceResponse = { credit: number };
-
 /** ====== 1) 发起充值：POST /credits/recharge ====== */
 export async function startTopup(
   amount: number,
@@ -89,30 +93,63 @@ export async function startTopup(
   const { autoRedirect = true, newTab = false } = options ?? {};
   const url = `${API_BASE}/credits/recharge`;
 
-  const res = await axios.post<TopupCreateResponse>(
-    url,
-    { amount },
-    { headers: { "Content-Type": "application/json", ...authHeaders() } }
-  );
+  try {
+    const res = await axios.post<TopupCreateResponse>(
+      url,
+      { amount },
+      { headers: { "Content-Type": "application/json", ...authHeaders() } }
+    );
 
-  const data = res.data;
-  if (autoRedirect && typeof window !== "undefined") {
-    if (newTab) window.open(data.paymentUrl, "_blank", "noopener,noreferrer");
-    else window.location.assign(data.paymentUrl);
+    const data = res.data;
+    if (autoRedirect && typeof window !== "undefined") {
+      if (newTab) window.open(data.paymentUrl, "_blank", "noopener,noreferrer");
+      else window.location.assign(data.paymentUrl);
+    }
+    return data;
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err.message || "Failed to create topup";
+    throw new Error(msg);
   }
-  return data;
+}
+
+/** ====== 1.1) 找回有效的未完成支付：GET /credits/active-payment ====== */
+export async function getActivePayment(): Promise<ActivePaymentResponse> {
+  const url = `${API_BASE}/credits/active-payment`;
+  try {
+    const res = await axios.get<ActivePaymentResponse>(url, { headers: authHeaders() });
+    return res.data;
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err.message || "Failed to fetch active payment";
+    throw new Error(msg);
+  }
+}
+
+/** ====== 1.2) 取消一笔待支付：POST /credits/expire/:transactionId ====== */
+export async function expirePayment(transactionId: string): Promise<{ ok: boolean }> {
+  const url = `${API_BASE}/credits/expire/${transactionId}`;
+  try {
+    const res = await axios.post(url, null, { headers: authHeaders() });
+    return res.data;
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err.message || "Failed to expire payment";
+    throw new Error(msg);
+  }
 }
 
 /** ====== 2) 查询余额：GET /credits/balance ====== */
 export async function getBalance(): Promise<BalanceResponse> {
   const url = `${API_BASE}/credits/balance`;
-  const res = await axios.get<BalanceResponse>(url, { headers: authHeaders() });
-  return res.data;
+  try {
+    const res = await axios.get<BalanceResponse>(url, { headers: authHeaders() });
+    return res.data;
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err.message || "Failed to get balance";
+    throw new Error(msg);
+  }
 }
 
 /** ====== 3) 刷新会话里的余额（写回 sessionStorage.user） ====== */
 export async function refreshSessionBalance(): Promise<number> {
-  // 无 user 时用 token 兜底恢复
   let me = loadSessionUser();
   if (!me) {
     const token = requireToken();
@@ -141,4 +178,24 @@ export async function refreshSessionBalance(): Promise<number> {
 /** ====== 4) 获取当前会话用户 ====== */
 export function getSessionUser(): SessionUser | null {
   return loadSessionUser();
+}
+
+/** ====== 5) 便捷函数：进入充值页时先尝试“找回或创建” ====== */
+export async function ensureTopupOrResume(
+  amount: number,
+  options?: { preferResume?: boolean; autoRedirect?: boolean; newTab?: boolean }
+): Promise<TopupCreateResponse | ActivePaymentResponse> {
+  const { preferResume = true, autoRedirect = true, newTab = false } = options ?? {};
+
+  if (preferResume) {
+    const active = await getActivePayment();
+    if (active.hasActive) {
+      if (autoRedirect && typeof window !== "undefined") {
+        if (newTab) window.open(active.paymentUrl, "_blank", "noopener,noreferrer");
+        else window.location.assign(active.paymentUrl);
+      }
+      return active;
+    }
+  }
+  return startTopup(amount, { autoRedirect, newTab });
 }

@@ -5,12 +5,15 @@ const User = require('../models/User');
 
 const cryptomusWebhook = async (req, res) => {
   try {
-    // 1) 验签（verifySign 内部会对去掉 sign 的 JSON 计算）
-    if (!verifySign(req.body)) {
+    // 原始 body（因为该路由用了 express.raw）
+    const raw = req.body instanceof Buffer ? req.body.toString('utf8') : '';
+
+    // 1) 验签（必须用原始 JSON 字符串）
+    if (!verifySign(raw)) {
       return res.status(403).json({ message: 'Invalid signature' });
     }
 
-    const event = req.body;
+    const event = JSON.parse(raw || '{}');
     const { uuid, status, order_id } = event;
 
     // 2) 查找交易：优先 uuid，兜底 orderId
@@ -29,15 +32,14 @@ const cryptomusWebhook = async (req, res) => {
       return res.status(200).send('OK');
     }
 
-    // 4) 成功入账（幂等：仅 pending 且未入账）
+    // 4) 成功入账（幂等）
     if (['paid', 'paid_over'].includes(status) && trx.status === 'pending' && !trx.credited) {
       const RATE = Number(process.env.CREDITS_PER_USD || 1);
 
-      // 若回调有实际到账美元字段（视你集成返回而定），优先用；否则用下单金额
+      // 若回调有实际到账美元字段（按你的事件字段名调整），优先用；否则用下单金额
       const usd = Number(event.paid_amount ?? trx.amount);
       const creditsToAdd = Math.floor(usd * RATE);
 
-      // 先把交易标记为已入账，避免并发重复（非跨表原子，但足够防止重复执行）
       const updated = await Transaction.findOneAndUpdate(
         { _id: trx._id, credited: false, status: 'pending' },
         {
@@ -58,13 +60,9 @@ const cryptomusWebhook = async (req, res) => {
       );
 
       if (updated) {
-        await User.updateOne(
-          { _id: trx.user },
-          { $inc: { credit: creditsToAdd } }
-        );
+        await User.updateOne({ _id: trx.user }, { $inc: { credit: creditsToAdd } });
       }
     } else {
-      // 非成功或已处理的情况也保存事件
       await trx.save();
     }
 

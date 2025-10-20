@@ -1,92 +1,182 @@
-"use client"
+"use client";
 
-import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
-import { Navigation } from "@/components/navigation"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { AlertCircle, Loader2 } from "lucide-react"
-import { startTopup, refreshSessionBalance, getBalance } from "../api/topup"
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Navigation } from "@/components/navigation";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { AlertCircle, Loader2 } from "lucide-react";
+import {
+  startTopup,
+  refreshSessionBalance,
+  getActivePayment,
+  expirePayment,
+  type ActivePaymentResponse,
+} from "../api/topup";
+
+function formatRemaining(ms: number) {
+  if (ms <= 0) return "已过期";
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return `${h}小时${mm}分`;
+  }
+  return `${m}分${r}秒`;
+}
 
 export default function TopupPage() {
-  const router = useRouter()
-  const [amount, setAmount] = useState<string>("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [needBilling, setNeedBilling] = useState<boolean>(false) // 这里先用假数据。你可以在 useEffect 拉取用户是否有账单信息。
-  const [rate, setRate] = useState<number>(1) // 默认 1 USD = 1 credit；创建发票返回会告诉你真实 rate
-  const [creditPreview, setCreditPreview] = useState<number>(0)
-
-  // 可选：页面挂载后刷新一次余额，保证 sessionStorage.user.credit 是最新
+  const router = useRouter();
+  const [amount, setAmount] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [needBilling, setNeedBilling] = useState<boolean>(false); // 后面可替换成真实账单检测
+  const [rate, setRate] = useState<number>(1);
+  const [creditPreview, setCreditPreview] = useState<number>(0);
+  const [active, setActive] = useState<Extract<ActivePaymentResponse, { hasActive: true }> | null>(null);
+  const [resuming, setResuming] = useState(false);
+  const [expiring, setExpiring] = useState(false);
+  const [now, setNow] = useState<number>(Date.now());
+  // 页面挂载：刷新余额 + 检查是否有未完成的支付
   useEffect(() => {
-    refreshSessionBalance().catch(() => {})
-    // 模拟：是否缺账单信息（你也可以根据 /api/user/billing-info 判断）
-    // setNeedBilling(true/false)
-  }, [])
+    refreshSessionBalance().catch(() => {});
+    // setNeedBilling(true/false) // 可在此替换为真实接口
+    (async () => {
+      try {
+        const ap = await getActivePayment();
+        if (ap.hasActive) setActive(ap);
+      } catch (e: any) {
+        console.warn('[active-payment]', e?.message);
+      }
+    })();
+  }, []);
 
-  // 计算预计 credits（仅提示，最终以 webhook 为准）
+  // 倒计时（每秒刷新一次）
   useEffect(() => {
-    const v = Number(amount)
-    if (!Number.isFinite(v) || v <= 0) {
-      setCreditPreview(0)
-    } else {
-      setCreditPreview(Math.floor(v * rate))
-    }
-  }, [amount, rate])
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const remainingMs = useMemo(() => {
+    if (!active) return 0;
+    const end = new Date(active.expiresAt).getTime();
+    return end - now;
+  }, [active, now]);
+
+  useEffect(() => {
+    const v = Number(amount);
+    if (!Number.isFinite(v) || v <= 0) setCreditPreview(0);
+    else setCreditPreview(Math.floor(v * rate));
+  }, [amount, rate]);
 
   const invalid = useMemo(() => {
-    const v = Number(amount)
-    if (!Number.isFinite(v)) return "请输入正确的金额"
-    if (v < 0) return "金额不能为负数"
-    if (v > 100000) return "金额过大，请分多次充值"
-    return null
-  }, [amount])
+    const v = Number(amount);
+    if (!Number.isFinite(v)) return "请输入正确的金额";
+    if (v < 0) return "金额不能为负数";
+    return null;
+  }, [amount]);
 
   function setQuick(a: number) {
-    setAmount(String(a))
+    setAmount(String(a));
   }
 
   async function onCryptoTopup() {
-    setError(null)
+    setError(null);
     if (invalid) {
-      setError(invalid)
-      return
+      setError(invalid);
+      return;
     }
     if (needBilling) {
-      setError("需要先完善账单信息")
-      return
+      setError("需要先完善账单信息");
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     try {
-      // 自动跳转到 Cryptomus 收银台
-      const resp = await startTopup(Number(amount), { autoRedirect: true })
-      // 若你不想当前窗口跳走，可以把 autoRedirect false，然后 window.open(resp.paymentUrl, "_blank")
-      // 同步一下 rate（给用户看一个“以最终回调为准”的估算）
-      if (resp?.rate) setRate(resp.rate)
+      const resp = await startTopup(Number(amount), { autoRedirect: true });
+      if (resp?.rate) setRate(resp.rate);
+      // 若设置 autoRedirect=false，可在此 setActive(resp) 并显示“继续支付”
     } catch (e: any) {
-      setError(e?.message || "充值失败，请稍后再试")
+      setError(e?.message || "充值失败，请稍后再试");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
+
+  function onResume() {
+    if (!active) return;
+    setResuming(true);
+    try {
+      // 直接跳转到收银台
+      window.location.assign(active.paymentUrl);
+    } finally {
+      setResuming(false);
+    }
+  }
+
+  async function onExpire() {
+    if (!active) return;
+    setExpiring(true);
+    try {
+      await expirePayment(active.transactionId);
+      setActive(null);
+    } catch (e: any) {
+      setError(e?.message || "取消失败，请稍后重试");
+    } finally {
+      setExpiring(false);
+    }
+  }
+
+  const activeExpired = active ? remainingMs <= 0 : false;
 
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
       <div className="pt-24 pb-12 px-6">
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* 左侧 - 充值区 */}
           <Card>
             <CardHeader>
               <CardTitle>存款余额</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                使用加密货币为您的账户充值
-              </p>
+              <p className="text-sm text-muted-foreground">使用加密货币为您的账户充值</p>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* 输入金额 */}
+              {active && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+                  <div className="mb-2 font-medium text-amber-800">
+                    检测到一笔未完成的充值（订单 {active.orderId}）
+                  </div>
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div className="text-amber-700">
+                      {activeExpired ? (
+                        "该链接已过期，请重新创建充值。"
+                      ) : (
+                        <>
+                          链接将在 <span className="font-semibold">{formatRemaining(remainingMs)}</span> 后过期。
+                        </>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="default"
+                        className="bg-green-500 hover:bg-green-600"
+                        disabled={resuming || activeExpired}
+                        onClick={onResume}
+                      >
+                        {resuming && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        继续支付
+                      </Button>
+                      <Button variant="outline" disabled={expiring} onClick={onExpire}>
+                        {expiring && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        取消本次
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Input
@@ -95,13 +185,9 @@ export default function TopupPage() {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                   />
-                  {/* 税率文案留空或自定义；加密充值通常没有 Stripe 税 */}
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    服务费以支付渠道为准
-                  </span>
+                  <span className="ml-auto text-xs text-muted-foreground">服务费以支付渠道为准</span>
                 </div>
 
-                {/* 快捷金额 */}
                 <div className="flex flex-wrap gap-2">
                   {[10, 25, 50, 100, 200, 500].map((v) => (
                     <Button key={v} type="button" variant="outline" size="sm" onClick={() => setQuick(v)}>
@@ -110,26 +196,22 @@ export default function TopupPage() {
                   ))}
                 </div>
 
-                {/* 预计获得 */}
                 <div className="text-sm text-muted-foreground">
                   预计获得 <span className="font-medium text-foreground">{creditPreview}</span> credits
                   <span className="ml-1">(当前汇率 {rate} credits / USD，最终以到账回调为准)</span>
                 </div>
               </div>
 
-              {/* 操作按钮 */}
               <div className="space-y-2">
                 <Button
                   className="w-full bg-green-500 hover:bg-green-600"
                   onClick={onCryptoTopup}
-                  disabled={!!invalid || loading}
+                  disabled={!!invalid || loading || needBilling}
                 >
                   {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   使用加密货币充值
                 </Button>
-                {invalid && !loading && (
-                  <p className="text-xs text-red-600">{invalid}</p>
-                )}
+                {invalid && !loading && <p className="text-xs text-red-600">{invalid}</p>}
                 {error && (
                   <div className="flex items-start gap-2 text-sm text-red-600">
                     <AlertCircle className="h-4 w-4 mt-0.5" />
@@ -138,7 +220,6 @@ export default function TopupPage() {
                 )}
               </div>
 
-              {/* 账单信息提示（需要时显示） */}
               {needBilling && (
                 <div className="border bg-muted p-3 rounded-md space-y-2">
                   <div className="flex items-center text-sm text-yellow-700">
@@ -152,17 +233,12 @@ export default function TopupPage() {
                     <br />
                     Se requiere información de facturación para continuar con el pedido。
                   </p>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => router.push("/settings/billing")}
-                  >
+                  <Button variant="outline" className="w-full" onClick={() => router.push("/settings/billing")}>
                     + 添加账单信息
                   </Button>
                 </div>
               )}
 
-              {/* 支持的加密货币（展示用，可以简化为你实际开放的） */}
               <div className="pt-2">
                 <p className="text-sm font-medium mb-2">支持的加密货币:</p>
                 <ul className="grid grid-cols-2 gap-1 text-sm text-muted-foreground">
@@ -179,10 +255,8 @@ export default function TopupPage() {
             </CardContent>
           </Card>
 
-          {/* 右侧 - 好处区 */}
           <Card className="flex flex-col justify-center items-center text-center">
             <CardContent className="space-y-4">
-              {/* 插画占位 */}
               <div className="w-full h-40 bg-muted rounded-md flex items-center justify-center">
                 <span className="text-muted-foreground">[ 插画 ]</span>
               </div>
@@ -205,5 +279,5 @@ export default function TopupPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

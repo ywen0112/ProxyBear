@@ -13,14 +13,22 @@ function generateSign(bodyObj) {
   return crypto.createHash('md5').update(b64 + PAYMENT_KEY, 'utf8').digest('hex');
 }
 
-// Webhook 验签：对“去掉 sign 后的 JSON”重新计算并比对
-function verifySign(incoming) {
+function verifySign(rawJson) {
+  if (!rawJson) return false;
+  let incoming;
+  try {
+    incoming = JSON.parse(rawJson);
+  } catch {
+    return false;
+  }
   const { sign, ...rest } = incoming || {};
-  const json = JSON.stringify(rest);                    
-  const b64  = Buffer.from(json, 'utf8').toString('base64');
+  if (!sign) return false;
+
+  const b64 = Buffer.from(JSON.stringify(rest), 'utf8').toString('base64');
   const calc = crypto.createHash('md5').update(b64 + PAYMENT_KEY, 'utf8').digest('hex');
   return calc === sign;
 }
+
 
 // 通用 POST 包装：带签名头 + 超时 + 错误透出
 async function cryptomusPost(path, body) {
@@ -44,7 +52,7 @@ async function createInvoice(amount, orderId, currency = 'USD') {
     currency,                                               
     order_id: orderId,
     to_currency: 'USDT',                               
-    url_callback: `${process.env.PUBLIC_API_URL}/webhook/cryptomus/payment`,
+    url_callback: `${process.env.PUBLIC_API_URL}/webhook/cryptomus`,
     url_success: `${process.env.APP_URL}/wallet/topup-success?orderId=${orderId}`,
     url_return: `${process.env.APP_URL}/wallet`,
     is_payment_multiple: true,
