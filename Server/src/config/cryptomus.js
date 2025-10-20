@@ -50,12 +50,10 @@ async function createInvoice(amount, orderId, currency = 'USD') {
   const body = {
     amount: String(amount),                                  
     currency,                                               
-    order_id: orderId,
-    to_currency: 'USDT',                               
+    order_id: orderId,                             
     url_callback: `${process.env.PUBLIC_API_URL}/webhook/cryptomus`,
-    url_success: `${process.env.APP_URL}/wallet/topup-success?orderId=${orderId}`,
-    url_return: `${process.env.APP_URL}/wallet`,
-    is_payment_multiple: true,
+    url_success: `${process.env.APP_URL}/dashboard`,
+    url_return: `${process.env.APP_URL}/topup`,
     lifetime: 3600,                                        
   };
   return cryptomusPost('/payment', body);
