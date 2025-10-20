@@ -1,6 +1,7 @@
 // config/cryptomus.js
 const crypto = require('crypto');
 const axios = require('axios');
+require('dotenv').config();
 
 const BASE_URL    = process.env.CRYPTOMUS_BASE_URL || 'https://api.cryptomus.com/v1';
 const MERCHANT_ID = process.env.CRYPTOMUS_MERCHANT_ID;
@@ -42,8 +43,7 @@ async function createInvoice(amount, orderId, currency = 'USD') {
     amount: String(amount),                                  
     currency,                                               
     order_id: orderId,
-    to_currency: 'USDT',                                    
-    network: 'tron',                                        
+    to_currency: 'USDT',                               
     url_callback: `${process.env.PUBLIC_API_URL}/webhook/cryptomus/payment`,
     url_success: `${process.env.APP_URL}/wallet/topup-success?orderId=${orderId}`,
     url_return: `${process.env.APP_URL}/wallet`,
