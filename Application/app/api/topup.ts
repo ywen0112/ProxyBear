@@ -1,7 +1,6 @@
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
 
-/** ====== 类型 ====== */
 export type UserToken = {
   id?: string;
   userId?: string;
@@ -44,17 +43,14 @@ export type ActivePaymentResponse =
       expiresAt: string; // ISO
     };
 
-/** ====== 基础配置 ====== */
 const API_BASE = "http://localhost:8210/api";
 
-/** ====== 鉴权头（去引号/trim，防止 Bearer "xxx"） ====== */
 function authHeaders() {
   const raw = sessionStorage.getItem("token");
   const token = raw ? raw.trim().replace(/^"+|"+$/g, "") : null;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/** ====== 会话工具 ====== */
 function requireToken(): string {
   const raw = sessionStorage.getItem("token");
   const t = raw ? raw.trim().replace(/^"+|"+$/g, "") : null;
@@ -82,7 +78,6 @@ function extractUserIdFromToken(t: string): string {
   return id;
 }
 
-/** ====== 1) 发起充值：POST /credits/recharge ====== */
 export async function startTopup(
   amount: number,
   options?: { autoRedirect?: boolean; newTab?: boolean }

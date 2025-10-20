@@ -1,4 +1,3 @@
-// controllers/userController.js
 const {
   updateUserBasic,
   updateUserPassword,
@@ -7,7 +6,7 @@ const {
   createSubUser,
   getSubUsersByMainEmail,
   deleteSubUser,
-  spendCredit, // 可选：若你有 /api/credits/spend 路由
+  spendCredit, 
 } = require("../maintenance/userMaintenance");
 
 // 统一错误响应
@@ -15,11 +14,10 @@ function sendErr(res, status, message, extra = {}) {
   return res.status(status).json({ message, ...extra });
 }
 
-/** 基本信息 */
 const getUserInfo = async (req, res) => {
   try {
     const { id } = req.params;
-    const data = await getUserById(id); // { user: {..., effectiveCredit}, billing }
+    const data = await getUserById(id); 
     return res.json(data);
   } catch (err) {
     return sendErr(res, 404, err.message);
@@ -55,19 +53,17 @@ const upsertBillingInfo = async (req, res) => {
   }
 };
 
-/** 子用户 */
 const createSubuser = async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return sendErr(res, 400, "子用户邮箱是必须的");
 
     const { user, plainPassword } = await createSubUser(req.user.id, { subEmail: email });
-    // 共享池：usesPool=true，credit=0；仅创建时返回明文密码
     return res.status(201).json({
       id: user._id.toString(),
       email: user.email,
       username: user.username,
-      password: plainPassword, // 仅此一次
+      password: plainPassword,
       usesPool: true,
       credit: 0,
     });
@@ -79,7 +75,6 @@ const createSubuser = async (req, res) => {
 
 const getSubuserList = async (req, res) => {
   try {
-    // 仅允许主账号查看自己的子用户
     if (req.user.role !== "main") return sendErr(res, 403, "Forbidden");
 
     const requestedEmail = String(req.query.email || "").trim().toLowerCase();
@@ -97,7 +92,7 @@ const getSubuserList = async (req, res) => {
       username: s.username,
       usesPool: true,
       credit: 0,
-      effectiveCredit: s.effectiveCredit, // 展示主池余额
+      effectiveCredit: s.effectiveCredit,
       createdAt: s.createdAt,
     }));
 
@@ -122,7 +117,6 @@ const deleteSubuser = async (req, res) => {
   }
 };
 
-/** 消费（如果你有 /api/credits/spend 路由则保留，否则可删除这个函数与对应路由） */
 const spend = async (req, res) => {
   try {
     const { amount, userId } = req.body;
@@ -131,14 +125,13 @@ const spend = async (req, res) => {
       return sendErr(res, 400, "amount 必须是正数");
     }
 
-    // 默认为当前登录用户消费；主账号可代子账号消费时传 userId
     const spenderId = userId || req.user.id;
     if (spenderId !== req.user.id && req.user.role !== "main") {
       return sendErr(res, 403, "Forbidden");
     }
 
     const result = await spendCredit(spenderId, value);
-    return res.json(result); // { main:{pool}, sub?:{effectiveCredit} }
+    return res.json(result); 
   } catch (err) {
     if (err.code === "USER_NOT_FOUND" || err.code === "MAIN_NOT_FOUND") {
       return sendErr(res, 404, err.message);
