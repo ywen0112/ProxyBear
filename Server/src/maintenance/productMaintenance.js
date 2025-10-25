@@ -41,9 +41,13 @@ const getProducts = async () => {
 const getAllProducts = async () => {
   const products = await Product.find().lean();
 
-  return products.map(product => ({
+  return products.map((product) => ({
     _id: product._id,
     name: product.name,
+    category: product.category,
+    formType: product.formType,
+
+    // 描述部分
     description: {
       short: product.description?.short || "",
       long: product.description?.long || "",
@@ -51,13 +55,37 @@ const getAllProducts = async () => {
       features: Array.isArray(product.description?.features)
         ? product.description.features
         : typeof product.description?.features === "string"
-          ? product.description.features.split("\n")
-          : []
+        ? product.description.features.split("\n")
+        : [],
     },
-    createdAt: product.createdAt,
-    price: product.price || null,
+
+    // 可选地区（仅 ISP）
+    validRegions: Array.isArray(product.validRegions)
+      ? product.validRegions
+      : [],
+
+    // 表单结构
+    subCategories: (product.subCategories || []).map((sub) => ({
+      name: sub.name,
+      pricingType: sub.pricingType,
+      formFields: (sub.formFields || []).map((f) => ({
+        key: f.key,
+        label: f.label,
+        type: f.type,
+        unit: f.unit || "",
+        enum: f.enum || [],
+        required: !!f.required,
+        help: f.help || "",
+        min: f.min ?? null,
+        step: f.step ?? 1,
+        showIf: f.showIf || null,
+      })),
+    })),
+
+    // 直接价格（目前只有 ISP 可能用）
     directPrices: product.directPrices || [],
-    subCategories: product.subCategories || []
+
+    createdAt: product.createdAt,
   }));
 };
 

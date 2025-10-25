@@ -15,7 +15,9 @@ export function Navigation() {
   const [pathname, setPathname] = useState<string>("");
   const [username, setUsername] = useState<string | null>(null);
   const [role, setRole] = useState<Role | null>(null);
+  const [checkedUser, setCheckedUser] = useState(false);
 
+  // ✅ 规范化 pathname
   useEffect(() => {
     if (pathnameRaw) {
       let p = pathnameRaw;
@@ -24,6 +26,7 @@ export function Navigation() {
     }
   }, [pathnameRaw]);
 
+  // ✅ 从 sessionStorage 加载用户信息
   useEffect(() => {
     const userData = sessionStorage.getItem("user");
     if (userData) {
@@ -38,8 +41,10 @@ export function Navigation() {
       setUsername(null);
       setRole(null);
     }
+    setCheckedUser(true);
   }, []);
 
+  // ✅ 限制 sub user 访问某些页面
   const restrictedForSub = useMemo(() => ["/topup", "/subUser"], []);
   useEffect(() => {
     if (role === "sub" && pathname) {
@@ -50,6 +55,18 @@ export function Navigation() {
     }
   }, [role, pathname, restrictedForSub, router]);
 
+  // ✅ 自动跳转 admin 至 /usersDataGrid
+  useEffect(() => {
+    if (!checkedUser) return; // 确保用户已加载
+    const publicPages = ["/", "/login", "/register"];
+    if (!role || publicPages.includes(pathname)) return;
+
+    if (role === "admin" && !pathname.startsWith("/usersDataGrid")) {
+      router.replace("/usersDataGrid");
+    }
+  }, [checkedUser, role, pathname, router]);
+
+  // ✅ 登出
   const handleLogout = () => {
     sessionStorage.removeItem("token");
     sessionStorage.removeItem("user");
@@ -58,6 +75,7 @@ export function Navigation() {
     router.push("/login");
   };
 
+  // ✅ 当前路径高亮
   const isActive = (href: string) => {
     let h = href;
     if (h !== "/" && h.endsWith("/")) h = h.slice(0, -1);
@@ -65,12 +83,25 @@ export function Navigation() {
     return pathname === h || pathname.startsWith(h + "/");
   };
 
+  // ✅ 不同角色的导航项
   const navItems = useMemo(() => {
-    if (!username) return [];
+    if (!role) return [];
+
+    if (role === "admin") {
+      // 管理员导航栏
+      return [
+        { href: "/usersDataGrid", label: "用户管理" },
+        { href: "/usersPlans", label: "用户计划 / 订单" },
+        { href: "/productsPricing", label: "产品价格配置" },
+      ];
+    }
+
+    // 普通用户或子用户
     const items = [
       { href: "/dashboard", label: "控制台" },
       { href: "/products", label: "购买产品" },
       { href: "/invoice", label: "发票" },
+      { href: "/purchased", label: "已购买产品" },
     ];
 
     if (role !== "sub") {
@@ -86,7 +117,7 @@ export function Navigation() {
       <div className="max-w-7xl mx-auto px-6 py-4">
         <div className="flex items-center justify-between">
           <Link
-            href={username ? "/dashboard" : "/"}
+            href={username ? (role === "admin" ? "/usersDataGrid" : "/dashboard") : "/"}
             className="text-2xl font-bold text-foreground hover:text-accent transition-colors"
           >
             Proxybear
@@ -110,34 +141,31 @@ export function Navigation() {
           </div>
 
           <div className="flex items-center gap-4">
-            {username ? (
-              <>
-                <Link
-                  href="/profile"
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {username}
-                </Link>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleLogout}
-                  title="退出登录"
-                >
-                  <LogOut className="h-5 w-5 text-red-500" />
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="ghost" asChild>
-                  <Link href="/login">登录</Link>
-                </Button>
-                <Button asChild>
-                  <Link href="/register">注册</Link>
-                </Button>
-              </>
-            )}
-          </div>
+          {role ? (
+            <>
+              <span className="text-sm text-muted-foreground">
+                {role === "admin" ? "管理员" : username || "用户"}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleLogout}
+                title="退出登录"
+              >
+                <LogOut className="h-5 w-5 text-red-500" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" asChild>
+                <Link href="/login">登录</Link>
+              </Button>
+              <Button asChild>
+                <Link href="/register">注册</Link>
+              </Button>
+            </>
+          )}
+        </div>
         </div>
       </div>
     </nav>

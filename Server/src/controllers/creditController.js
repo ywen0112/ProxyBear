@@ -15,7 +15,7 @@ const rechargeCredit = async (req, res) => {
     const orderId = `recharge_${userId}_${Date.now()}`;
     const invoice = await createInvoice(usd, orderId); // { uuid, url/link/checkout_url, ... }
 
-    const RATE = Number(process.env.CREDITS_PER_USD || 1);
+    const RATE = Number(process.env.CREDITS_PER_USD);
     const expectedCredits = Math.floor(usd * RATE);
     const paymentUrl = invoice.url || invoice.link || invoice.checkout_url;
 

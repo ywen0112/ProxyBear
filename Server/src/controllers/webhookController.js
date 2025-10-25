@@ -34,7 +34,7 @@ const cryptomusWebhook = async (req, res) => {
 
     // 4) 成功入账（幂等）
     if (['paid', 'paid_over'].includes(status) && trx.status === 'pending' && !trx.credited) {
-      const RATE = Number(process.env.CREDITS_PER_USD || 1);
+      const RATE = Number(process.env.CREDITS_PER_USD);
 
       // 若回调有实际到账美元字段（按你的事件字段名调整），优先用；否则用下单金额
       const usd = Number(event.paid_amount ?? trx.amount);

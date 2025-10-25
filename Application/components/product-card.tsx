@@ -16,9 +16,9 @@ export interface ProductCardProps {
   title: string
   description: string
   features: string[]
-  price: string
-  priceType: string
-  pricePerUnit: string
+  // price: string
+  // priceType: string
+  // pricePerUnit: string
   productId: string
 }
 
@@ -26,27 +26,27 @@ export function ProductCard({
   title,
   description,
   features,
-  price,
-  priceType,
-  pricePerUnit,
+  // price,
+  // priceType,
+  // pricePerUnit,
   productId
 }: ProductCardProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
-  const handleGetStarted = async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      router.push("/register")
-    } catch (error) {
-      console.error("Failed to redirect:", error)
-      setError("Something went wrong. Please try again.")
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  // const handleGetStarted = async () => {
+  //   setIsLoading(true)
+  //   setError(null)
+  //   try {
+  //     router.push("/register")
+  //   } catch (error) {
+  //     console.error("Failed to redirect:", error)
+  //     setError("Something went wrong. Please try again.")
+  //   } finally {
+  //     setIsLoading(false)
+  //   }
+  // }
 
   return (
     <Card className="relative h-full flex flex-col transition-all duration-300 hover:scale-105">
@@ -58,7 +58,7 @@ export function ProductCard({
       </CardHeader>
 
       <CardContent className="pb-6 flex-grow">
-        <div className="mb-6">
+        {/* <div className="mb-6">
           {priceType && (
             <span className="text-muted-foreground mr-1">{priceType}</span>
           )}
@@ -66,7 +66,7 @@ export function ProductCard({
           {pricePerUnit && (
             <span className="text-muted-foreground">/{pricePerUnit}</span>
           )}
-        </div>
+        </div> */}
 
         <ul className="space-y-3 mt-4">
           {features.map((feature, index) => (
@@ -78,7 +78,7 @@ export function ProductCard({
         </ul>
       </CardContent>
 
-      <CardFooter className="flex flex-col items-stretch mt-auto">
+      {/* <CardFooter className="flex flex-col items-stretch mt-auto">
         <Button
           className="w-full"
           size="lg"
@@ -89,7 +89,7 @@ export function ProductCard({
           {isLoading ? "Processing..." : "Get Started"}
         </Button>
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
-      </CardFooter>
+      </CardFooter> */}
     </Card>
   )
 }

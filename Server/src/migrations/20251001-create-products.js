@@ -1,231 +1,227 @@
-const { MongoClient } = require('mongodb');
+/**
+ * Migration: Create or refresh product definitions
+ * Safe version — auto-replaces same-name documents, removes invalid ones
+ */
+
+const { MongoClient } = require("mongodb");
 
 async function run(client) {
-  const db = client.db('ProxyBear');
-  const collectionName = 'products';
-
-  const collections = await db.listCollections({ name: collectionName }).toArray();
-  if (collections.length === 0) {
-    await db.createCollection(collectionName);
-    console.log(`Collection ${collectionName} created`);
-  } else {
-    console.log(`Collection ${collectionName} already exists`);
-  }
-
+  const db = client.db("ProxyBear");
+  const collectionName = "products";
   const productsCollection = db.collection(collectionName);
 
-  // Indexes
-  try {
-    await productsCollection.createIndex({ name: 1 }, { unique: true });
-    await productsCollection.createIndex({ category: 1 });
-    await productsCollection.createIndex({ createdAt: 1 });
+  // 确保集合存在
+  await db.createCollection(collectionName).catch(() => {});
+  await productsCollection.createIndex({ name: 1 }, { unique: true });
 
-    await productsCollection.createIndex({ 'subCategories.name': 1 });
-    await productsCollection.createIndex({ 'subCategories.pricingType': 1 });
-    await productsCollection.createIndex({ 'subCategories.pricingTypeDesc': 1 });
-    await productsCollection.createIndex({ 'subCategories.pricingTypeUnit': 1 });
-    await productsCollection.createIndex({ 'subCategories.prices.size': 1 });
-    await productsCollection.createIndex({ 'subCategories.prices.price': 1 });
-    await productsCollection.createIndex({ 'subCategories.prices.visibleToGuest': 1 });
+  // 清理无效产品（只删除非指定类别）
+  const validCategories = ["Residential", "Mobile", "IPv6", "ISP"];
+  const deleteResult = await productsCollection.deleteMany({
+    category: { $nin: validCategories },
+  });
+  console.log(
+    deleteResult.deletedCount > 0
+      ? `已删除 ${deleteResult.deletedCount} 个旧产品 (非 ${validCategories.join(", ")})`
+      : "无旧产品需要删除"
+  );
 
-    await productsCollection.createIndex({ 'directPrices.price': 1 });
-    await productsCollection.createIndex({ 'directPrices.priceType': 1 });
-    await productsCollection.createIndex({ 'directPrices.pricePerUnit': 1 });
-    await productsCollection.createIndex({ 'directPrices.visibleToGuest': 1 });
-
-    console.log('Indexes for subCategories and directPrices created successfully');
-  } catch (err) {
-    console.error('Error creating indexes:', err);
-  }
+  const validRegionsArray = [
+    "virm","dtag","juic","vocu","dtag_nl","pol","bra","lva","fra","rou",
+    "can","nor","aut","ukr","tur","jpn","isr","twn","kor","esp","sgp",
+    "hkn","tha","ind","ita"
+  ];
 
   // ------------------- Residential -------------------
-  const residentialProduct = {
-    name: '住宅代理',
-    category: 'Residential',
+  const residential = {
+    name: "住宅代理",
+    category: "Residential",
+    formType: "bandwidth",
     description: {
-      short: '住宅代理',
-      long: '高速、可靠的住宅代理',
-      long2: '高效、实惠，旨在提供快速、安全的连接。',
-      features: [
-        '全球多个地点，保证高性能。',
-        '灵活的计划，适合各种用例。'
-      ]
+      short: "住宅代理",
+      long: "高速、可靠的住宅代理，适合需要稳定住宅IP的用户。",
+      long2: "高效、实惠，旨在提供快速、安全的连接。",
+      features: ["全球多个地点，保证高性能。", "灵活的流量计费模式。"],
     },
     subCategories: [
       {
-        name: 'Bandwidth',
-        pricingType: 'perGB',
-        prices: [
-          { size: 1, price: 4.5, visibleToGuest: true },
-          { size: 5, price: 20, visibleToGuest: false },
-          { size: 10, price: 35, visibleToGuest: false },
-          { size: 25, price: 87.5, visibleToGuest: false },
-          { size: 50, price: 162.5, visibleToGuest: false },
-          { size: 100, price: 300, visibleToGuest: false },
-          { size: 300, price: 720, visibleToGuest: false },
-          { size: 500, price: 1000, visibleToGuest: false }
-        ]
+        name: "Bandwidth",
+        pricingType: "perGB",
+        formFields: [
+          {
+            key: "bandwidth",
+            label: "带宽 (GB)",
+            type: "integer",
+            unit: "GB",
+            required: true,
+            help: "请输入正整数，例如 1、2、3...",
+            min: 1,
+            step: 1,
+          },
+        ],
       },
-      {
-        name: 'Unlimited',
-        pricingType: 'throughput',
-        prices: [
-          { size: 200, price: 2250, plan: 'Month', visibleToGuest: true },
-          { size: 400, price: 3800, plan: 'Month', visibleToGuest: false },
-          { size: 600, price: 4200, plan: 'Month', visibleToGuest: false },
-          { size: 800, price: 4500, plan: 'Month', visibleToGuest: false },
-          { size: 1000, price: 5000, plan: 'Month', visibleToGuest: false },
-          { size: 200, price: 4000, plan: '2Month', visibleToGuest: false },
-          { size: 400, price: 5500, plan: '2Month', visibleToGuest: false },
-          { size: 600, price: 6600, plan: '2Month', visibleToGuest: false },
-          { size: 800, price: 7400, plan: '2Month', visibleToGuest: false },
-          { size: 1000, price: 8250, plan: '2Month', visibleToGuest: false }
-        ]
-      }
     ],
-    directPrices: [],
-    createdAt: new Date()
   };
 
   // ------------------- Mobile -------------------
-  const mobileProduct = {
-    name: '移动代理',
-    category: 'Mobile',
+  const mobile = {
+    name: "移动代理",
+    category: "Mobile",
+    formType: "bandwidth",
     description: {
-      short: '移动代理',
-      long: '广泛的移动 IP 池，覆盖 50+ 国家。',
-      long2: '适合高安全 Web 抓取、球鞋和社交媒体。',
+      short: "移动代理",
+      long: "覆盖 50+ 国家/地区的移动 IP 池。",
+      long2: "适合高安全 Web 抓取、广告验证、社交媒体运营。",
       features: [
-        '500k+ 实时移动节点',
-        '支持 IP & User:Pass 验证',
-        '国家 & ISP 定向',
-        '轮换 & 粘性会话',
-        '无限并发连接',
-        '支持 HTTP/SOCKS5 协议',
-        '条款与条件适用'
-      ]
+        "500k+ 实时移动节点",
+        "支持国家 & ISP 定向",
+        "支持 HTTP/SOCKS5 协议",
+      ],
     },
     subCategories: [
       {
-        name: 'Bandwidth',
-        pricingType: 'perGB',
-        prices: [
-          { size: 1, price: 5.00, visibleToGuest: true },
-          { size: 5, price: 22.50, visibleToGuest: false },
-          { size: 10, price: 40.00, visibleToGuest: false },
-          { size: 25, price: 100.00, visibleToGuest: false },
-          { size: 50, price: 187.50, visibleToGuest: false },
-          { size: 100, price: 350.00, visibleToGuest: false },
-          { size: 300, price: 870.00, visibleToGuest: false },
-          { size: 500, price: 1250.00, visibleToGuest: false },
-          { size: 1000, price: 2000.00, visibleToGuest: false },
-          { size: 2000, price: 3250.00, visibleToGuest: false },
-          { size: 3000, price: 4350.00, visibleToGuest: false },
-          { size: 5000, price: 6000.00, visibleToGuest: false }
-        ]
-      }
+        name: "Bandwidth",
+        pricingType: "perGB",
+        formFields: [
+          {
+            key: "bandwidth",
+            label: "带宽 (GB)",
+            type: "integer",
+            unit: "GB",
+            required: true,
+            help: "仅允许正整数，例如 1、2、3...",
+            min: 1,
+            step: 1,
+          },
+        ],
+      },
     ],
-    directPrices: [],
-    createdAt: new Date()
-  };
-
-  // ------------------- Datacenter -------------------
-  const datacenterProduct = {
-    name: '数据中心代理',
-    category: 'Datacenter',
-    description: {
-      short: '数据中心代理',
-      long: '强大且快速的 IPv4 轮换数据中心代理，最具性价比的选择。',
-      long2: '适用于任何使用场景或目的。',
-      features: [
-        '20,000 IP 池',
-        '支持 1 IP 验证',
-        '国家定向',
-        '反向连接端口',
-        '无限流量',
-        '支持 HTTP/SOCKS5 协议',
-        '条款与条件适用'
-      ]
-    },
-    subCategories: [
-      {
-        name: 'Duration',
-        pricingType: 'time',
-        prices: [
-          { size: 1, price: 10.00, plan: 'Day', visibleToGuest: true },
-          { size: 1, price: 50.00, plan: 'Week', visibleToGuest: false },
-          { size: 1, price: 145.00, plan: 'Month', visibleToGuest: false }
-        ]
-      }
-    ],
-    directPrices: [],
-    createdAt: new Date()
   };
 
   // ------------------- IPv6 -------------------
-  const ipv6Product = {
-    name: 'IPv6代理',
-    category: 'IPv6',
+  const ipv6 = {
+    name: "IPv6 代理",
+    category: "IPv6",
+    formType: "ipv6",
     description: {
-      short: 'IPv6代理',
-      long: '提供数十亿个 IPv6 地址，让您的抓取更快更高效。',
-      long2: '永不担心在支持 IPv6 的站点被封锁。',
-      features: [
-        '2x /29 网络 IP 池',
-        '支持 IP & User:Pass 验证',
-        '国家定向',
-        '轮换 & 粘性会话',
-        '支持 HTTP/SOCKS5 协议',
-        '条款与条件适用'
-      ]
+      short: "IPv6 代理",
+      long: "支持按流量或不限速率两种方式购买。",
+      long2: "提供数十亿 IPv6 地址，确保爬虫更快、更稳定。",
+      features: ["2x /29 网络 IP 池", "支持 HTTP/SOCKS5 协议", "国家定向 + 轮换模式"],
     },
     subCategories: [
       {
-        name: 'Bandwidth',
-        pricingType: 'perGB',
-        prices: [
-          { size: 100, price: 20.00, visibleToGuest: true },
-          { size: 250, price: 40.00, visibleToGuest: false },
-          { size: 500, price: 70.00, visibleToGuest: false },
-          { size: 1000, price: 110.00, visibleToGuest: false },
-          { size: 3000, price: 250.00, visibleToGuest: false },
-          { size: 5000, price: 350.00, visibleToGuest: false },
-          { size: 10000, price: 550.00, visibleToGuest: false }
-        ]
+        // Bandwidth 改为 select：枚举固定档位
+        name: "Bandwidth",
+        pricingType: "perGB",
+        formFields: [
+          {
+            key: "bandwidth",
+            label: "选择带宽包",
+            type: "select",
+            unit: "GB",
+            required: true,
+            enum: [
+              { value: "100",   label: "100 GB" },
+              { value: "250",   label: "250 GB" },
+              { value: "500",   label: "500 GB" },
+              { value: "1000",  label: "1000 GB" },
+              { value: "3000",  label: "3000 GB" },
+              { value: "5000",  label: "5000 GB" },
+              { value: "10000", label: "10000 GB" },
+            ],
+            help: "IPv6 按流量只能选择固定档位",
+          },
+        ],
       },
       {
-        name: 'Throughput',
-        pricingType: 'throughput',
-        prices: [
-          { size: 30, price: 10.00, plan: '1Day', visibleToGuest: true },
-          { size: 30, price: 45.00, plan: '7Day', visibleToGuest: false },
-          { size: 30, price: 110.00, plan: '30Day', visibleToGuest: false },
-          { size: 60, price: 15.00, plan: '1Day', visibleToGuest: false },
-          { size: 60, price: 60.00, plan: '7Day', visibleToGuest: false },
-          { size: 60, price: 160.00, plan: '30Day', visibleToGuest: false },
-          { size: 120, price: 20.00, plan: '1Day', visibleToGuest: false },
-          { size: 120, price: 90.00, plan: '7Day', visibleToGuest: false },
-          { size: 120, price: 250.00, plan: '30Day', visibleToGuest: false },
-          { size: 200, price: 25.00, plan: '1Day', visibleToGuest: false },
-          { size: 200, price: 120.00, plan: '7Day', visibleToGuest: false },
-          { size: 200, price: 350.00, plan: '30Day', visibleToGuest: false }
-        ]
-      }
+        name: "Unlimited",
+        pricingType: "throughput",
+        formFields: [
+          {
+            key: "plan",
+            label: "计划天数",
+            type: "select",
+            enum: [
+              { value: "1", label: "1 天" },
+              { value: "7", label: "7 天" },
+              { value: "30", label: "30 天" },
+            ],
+          },
+          {
+            key: "speed",
+            label: "速率 (Mbps)",
+            type: "select",
+            unit: "Mbps",
+            enum: [
+              { value: "30", label: "30 Mbps" },
+              { value: "60", label: "60 Mbps" },
+              { value: "120", label: "120 Mbps" },
+              { value: "200", label: "200 Mbps" },
+            ],
+          },
+        ],
+      },
     ],
-    directPrices: [],
-    createdAt: new Date()
   };
 
-  const products = [residentialProduct, mobileProduct, datacenterProduct, ipv6Product];
-  for (const product of products) {
-    const exists = await productsCollection.findOne({ name: product.name });
-    if (!exists) {
-      await productsCollection.insertOne(product);
-      console.log(`Product "${product.name}" created`);
-    } else {
-      console.log(`Product "${product.name}" already exists`);
-    }
+  // ------------------- ISP -------------------
+  const isp = {
+    name: "ISP 代理",
+    category: "ISP",
+    formType: "isp",
+    description: {
+      short: "ISP 代理",
+      long: "高速稳定的 ISP 专用代理，提供固定住宅级 IP。",
+      long2: "覆盖欧洲、亚洲和北美多个地区，支持多种协议。",
+      features: [
+        "固定 ISP 住宅 IP，提升信任度与安全性",
+        "支持 HTTP/SOCKS5 协议",
+        "适合广告验证、电商、SEO 场景",
+      ],
+    },
+    validRegions: validRegionsArray,
+    subCategories: [
+      {
+        name: "ISP",
+        pricingType: "perIP",
+        formFields: [
+          {
+            key: "ip",
+            label: "IP 数量",
+            type: "select",
+            enum: [
+              { value: "1", label: "1" },
+              { value: "2", label: "2" },
+              { value: "3", label: "3" },
+            ],
+          },
+          {
+            key: "region",
+            label: "地区",
+            type: "select",
+            enum: validRegionsArray.map((r) => ({
+              value: r,
+              label: r.toUpperCase(),
+            })),
+            help: "选择地区，价格不随地区变化",
+          },
+        ],
+      },
+    ],
+  };
+
+  // ✅ 插入或更新产品（按 name 匹配，避免重复）
+  const products = [residential, mobile, ipv6, isp];
+  for (const p of products) {
+    await productsCollection.updateOne(
+      { name: p.name }, // 改成用 name 匹配
+      { $set: p },
+      { upsert: true }
+    );
+    console.log(`Product "${p.name}" (${p.category}) 已更新或创建`);
   }
+
+  console.log("所有产品已同步完成！");
 }
 
-module.exports = { run, name: '20251001-create-products-collection' };
+module.exports = { run, name: "20251001-create-products" };

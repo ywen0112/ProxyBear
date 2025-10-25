@@ -16,9 +16,18 @@ const listProducts = async (req, res) => {
 const listAllProducts = async (req, res) => {
   try {
     const products = await getAllProducts();
-    res.json(products);
+    res.json({
+      success: true,
+      count: products.length,
+      data: products,
+    });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error("[listAllProducts] Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "无法获取产品列表",
+      error: err.message,
+    });
   }
 };
 

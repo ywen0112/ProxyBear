@@ -8,6 +8,9 @@ const creditRoutes = require('./routes/creditRoutes');
 const productRoutes = require('./routes/productRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
+const resellRoutes = require('./routes/resellRoutes');
+const pricingRoutes = require('./routes/pricingRoute');
+const transactionRoutes = require('./routes/transactionRoutes');
 
 dotenv.config();
 connectDB();
@@ -42,6 +45,10 @@ app.use('/api/credits', creditRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/webhook', webhookRoutes);
+app.use('/api/purchase', resellRoutes);
+app.use("/api/pricing", pricingRoutes);
+app.use('/api/transactions', transactionRoutes);
+
 
 const PORT = process.env.PORT || 8210;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

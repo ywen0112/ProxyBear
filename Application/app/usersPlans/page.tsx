@@ -31,7 +31,7 @@ interface RawProduct {
 }
 
 // 前端页面
-export default function HomePage() {
+export default function UsersPlans() {
   const [products, setProducts] = useState<RawProduct[]>([])
   // const [pricing, setPricing] = useState<PricingData | null>(null)
   const [loading, setLoading] = useState(true)
