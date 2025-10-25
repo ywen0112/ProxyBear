@@ -144,7 +144,17 @@ export function Navigation() {
           {role ? (
             <>
               <span className="text-sm text-muted-foreground">
-                {role === "admin" ? "管理员" : username || "用户"}
+                {role === "admin" ? (
+                  <span className="text-sm text-muted-foreground">管理员</span>
+                ) : (
+                  <Link
+                    href="/profile"
+                    className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition"
+                    title="查看个人资料"
+                  >
+                    {username || "用户"}
+                  </Link>
+                )}
               </span>
               <Button
                 variant="ghost"
